@@ -1,14 +1,40 @@
+
+
+
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
+  <name>panda_ai_control</name>
+  <version>0.0.1</version>
+  <description>
+    Franka Panda 로봇을 위한 통합 AI 제어 패키지.
+    (BEV, Pose Estimation, DQN Control 포함)
+  </description>
+  <maintainer email="user@todo.todo">user</maintainer>
+  <license>Apache 2.0</license>
+
+  <!-- 빌드 도구 의존성 -->
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- C++ 의존성 -->
   <depend>rclcpp</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>control_msgs</depend>
+
+  <!-- Python 의존성 -->
+  <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
   <depend>cv_bridge</depend>
-  <depend>image_transport</depend>
+  <depend>message_filters</depend>
+  <depend>tf2_ros</depend>
 
-  <depend>CUDA</depend>
-  <depend>TensorRT</depend>
-  <depend>OpenCV</depend> 
+  <!-- 테스트 의존성 -->
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
 
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
 </package>
