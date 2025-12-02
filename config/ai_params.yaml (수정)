@@ -1,0 +1,33 @@
+# 모든 노드를 위한 공통 파라미터
+
+bev_vision_node:
+  ros__parameters:
+    wrist_cam_topic: '/camera/wrist/image_raw'
+    surround_cam_topic: '/camera/surround/image_raw'
+    bev_image_topic: '/panda_ai/bev_image'
+
+pose_estimation_node:
+  ros__parameters:
+    bev_image_topic: '/panda_ai/bev_image'
+    pose_topic: '/panda_ai/detected_object_pose' 
+    # pose_model_path: 'package://panda_ai_control/models/pose_model.pth'
+
+# [!!!] ASR/LLM 파이프라인을 위한 수정/추가
+#
+task_orchestrator_node:
+  ros__parameters:
+    user_command_topic: '/user_command' # Frontend/ASR로부터 명령을 받는 토픽
+    pose_topic: '/panda_ai/detected_object_pose'
+    task_goal_topic: '/panda_ai/task_goal' # DQN으로 목표를 하달하는 토픽
+    task_status_topic: '/panda_ai/task_status' # DQN으로부터 상태를 보고받는 토픽
+
+dqn_control_node: # dqn 노드도 새 토픽을 사용하도록 수정
+  ros__parameters:
+    # pose_topic: '/panda_ai/detected_object_pose' # (이제 Orchestrator가 관리)
+    joint_state_topic: '/joint_states'
+    ai_command_topic: '/panda_ai_commands'
+    
+    # [!!!] Orchestrator와 통신하기 위한 토픽
+    task_goal_topic: '/panda_ai/task_goal' 
+    task_status_topic: '/panda_ai/task_status'
+    # dqn_model_path: 'package://panda_ai_control/models/goal_conditioned_dqn.pth'
