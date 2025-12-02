@@ -48,3 +48,48 @@ install(TARGETS
   tensorrt_inference_node
   DESTINATION lib/${PROJECT_NAME}
 )
+
+
+cmake_minimum_required(VERSION 3.8)
+project(panda_ai_control)
+
+# ... (기존 find_package 동일) ...
+find_package(ament_cmake REQUIRED)
+# ...
+
+# ... (기존 C++ 실행 파일 동일) ...
+add_executable(
+  main_control_node
+  src/main_control_node.cpp
+)
+# ...
+
+# ... (기존 C++ 설치 동일) ...
+install(TARGETS
+  main_control_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# Python 스크립트 설치
+install(
+  PROGRAMS
+  "scripts/bev_vision_node.py"
+  "scripts/pose_estimation_node.py"
+  "scripts/dqn_control_node.py"
+  "scripts/task_orchestrator_node.py" # <-- [!!!] 이 줄 추가
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# ... (기존 launch 및 config 설치 동일) ...
+install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
+install(
+  DIRECTORY config
+  DESTINATION share/${PROJECT_NAME}
+)
+
+# ... (기존 테스트 동일) ...
+
+ament_package(
