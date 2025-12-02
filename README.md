@@ -525,3 +525,146 @@ Use code with caution.
 
 MVP 배포에서는 **방법 2(Supervisor)**가 코드 수정 없이 두 시스템을 효과적으로 단일 컨테이너에 통합할 수 있는 가장 표준적이고 강력한 방법입니다.
 
++++++++++++++++++++++++++++++++++++++++++++++
+
+Sim-to-Real Checklist & Step-by-Step Guide
+1단계: 하드웨어 및 소프트웨어 환경 구축 (필수 점검)
+1. 로봇 및 주변 환경: * 두산 로봇암: 전원 연결, 컨트롤러 부팅, 네트워크 연결 확인. * D455 카메라: 로봇 엔드 이펙터에 단단히 고정되었는지 확인. USB 3.0 이상 포트에 연결. * 워크스테이션/엣지 PC: 로봇암과 D455를 연결할 PC (GPU 장착 필수). ROS 2 설치 및 설정 완료.
+
+2. ROS 2 패키지 및 코드 준비: * 위에 제시된 camera_driver_node.py, student_policy_inference_node.py, robot_arm_interface_node.py 파일들을 하나의 ROS 2 패키지(예: doosan_rl_sim2real) 내에 저장. * setup.py에 노드 실행 스크립트 등록 (또는 launch 파일 생성). * student_policy.pt (학습된 Student 모델) 파일이 추론 노드에서 접근 가능한 경로에 있는지 확인. * 두산 로봇 ROS 드라이버가 설치되어 있고, joint_states 발행 및 joint_group_vel_controller/commands 구독이 가능한지 확인.
+
+3. Safety (제일 중요!): * 비상 정지 버튼 (E-Stop): 로봇 컨트롤러 및 주변에 손 닿는 곳에 비상 정지 버튼이 항상 활성화되어 있는지 확인. * 작업 공간 확보: 로봇의 최대 가동 범위 내에 사람이 없도록 안전 구역 설정. * 속도 제한: student_policy_inference_node.py의 self.MAX_SPEED 값을 매우 낮게 (예: 0.1 rad/s) 설정하여 초기 움직임을 최소화합니다.
+
+2단계: 개별 노드 테스트 및 캘리브레이션
+1. camera_driver_node 테스트: * ros2 run doosan_rl_sim2real camera_driver_node 실행. * ros2 topic echo /camera/depth/image_raw로 메시지 발행 확인. * ros2 run rviz2 rviz2에서 Image Display를 추가하여 Depth 이미지 가시화 확인. (RealSense SDK 필터 적용 여부 확인) * 중요: Depth 이미지의 노이즈, 범위, 해상도가 시뮬레이션 학습 시와 최대한 유사한지 육안으로 확인.
+
+2. 두산 로봇 ROS 드라이버 테스트: * 두산 로봇 ROS 드라이버를 실행하여 joint_states 토픽이 정상적으로 발행되는지 확인. * ros2 topic echo /joint_states로 관절 값 확인. * 수동으로 로봇을 움직여 joint_states 값이 변하는지 확인. * robot_arm_interface_node가 로봇 API와 정상적으로 통신할 수 있는지 사전 테스트 (로봇 제어 없이 self.get_logger().info 등으로 API 호출 성공 여부만 확인).
+
+3. Sim-to-Real Gap - Hand-Eye Calibration (필수!): * D455 카메라의 3D 공간에서의 정확한 위치와 방향을 로봇 베이스 좌표계 기준으로 알아야 합니다. * **robot_base_link 기준 camera_link의 Transformation (변환 행렬)**이 필요합니다. * 이 과정은 ros2_hand_eye_calibration 같은 패키지나 외부 툴을 사용하여 정밀하게 수행해야 합니다. * 시뮬레이션에서 정의된 카메라 위치와 실제 카메라 위치가 정확히 일치하는지 확인하는 과정입니다. 이 단계가 잘못되면 로봇은 잘못된 공간 정보를 해석합니다.
+
+3단계: 통합 시스템 구동 (Sim-to-Real!)
+주의: 이 단계부터 로봇이 예측 불가능하게 움직일 수 있으므로, 항상 비상 정지 버튼을 누를 준비를 해야 합니다.
+
+1. 모든 노드 실행 (터미널 여러 개 사용 또는 Launch 파일): * ros2 run doosan_rl_sim2real camera_driver_node * ros2 run doosan_rl_sim2real student_policy_inference_node * ros2 run doosan_rl_sim2real robot_arm_interface_node * 두산 로봇의 ROS 드라이버 (또는 컨트롤러)도 실행되어야 합니다.
+
+2. 초기 동작 관찰 (아주 느리게): * 로봇이 움직이기 시작하면, 아주 느리게 (MAX_SPEED가 낮으므로) 로봇 팔이 어떤 방향으로 움직이는지 관찰합니다. * 정확하게 원하는 동작(예: 물건 집기)과 유사한 방향으로 움직이는가? * 아니면 엉뚱한 방향으로 급발진하는가? * 조금이라도 이상하면 즉시 비상 정지 버튼을 누릅니다.
+
+3. 디버깅 및 반복: * 로봇이 이상하게 움직인다면: * /policy_actions 토픽을 ros2 topic echo로 확인: 모델이 어떤 명령을 내리고 있는지 확인. * 카메라 이미지와 전처리 확인: student_policy_inference_node 내에서 전처리된 이미지를 발행하여 Rviz2로 확인하거나, 중간 단계의 tensor를 저장하여 시뮬레이션 데이터와 비교. * Hand-Eye Calibration 재확인: 가장 흔한 Sim-to-Real Gap 원인입니다. * MAX_SPEED를 더 낮추거나, action_scaling에 문제가 없는지 확인. * 작은 성공: 만약 로봇이 원하는 방향으로 아주 조금이라도 움직인다면, MAX_SPEED를 천천히 올리면서 점진적으로 동작 범위를 늘려나갑니다.
+
+4. Tidy Task 실행: * 로봇이 안정적으로 움직인다면, 실제 물건들을 테이블 위에 배치하고 Tidy Task를 시도합니다. * 물건의 종류, 크기, 놓인 위치 등을 다양하게 바꿔가며 로봇의 강인성(Robustness)을 테스트합니다.
+
+Sim-to-Real은 인내심과 세심한 디버깅이 필요한 과정입니다. 하지만 성공한다면, 가상 세계에서 학습된 AI가 현실 세계에 강림하는 엄청난 성취를 경험하게 될 것입니다.
+
+.pt 파일을 ROS 2 통합 시스템에 배포하기 위해 성능을 최적화하는 과정은 Sim-to-Real 배포의 핵심입니다.강화학습 모델은 수많은 행렬 연산을 포함하고 있어, 일반적인 PyTorch 환경에서 Python으로 실행하면 지연 시간(Latency)이 길어집니다. 이를 해결하기 위해 ONNX나 TensorRT로 변환하고, 최적화된 환경에서 실행해야 합니다.아래는 PyTorch $\rightarrow$ ONNX $\rightarrow$ TensorRT 변환 및 ROS 2 노드에 통합하는 방법입니다.1. 모델 변환 (Optimization) 단계 💻A. Step 1: PyTorch(.pt)를 ONNX로 변환 (Python)**ONNX (Open Neural Network Exchange)**는 다양한 프레임워크 간에 모델을 공유하기 위한 표준 형식입니다. 변환을 위해서는 **학습 시 사용한 모델 아키텍처(클래스 정의)**와 모델 입력 데이터의 더미(Dummy) 텐서가 필요합니다.전제 조건: StudentPolicy 클래스 정의가 필요합니다. 이전 대화에서 Student 모델은 **Depth 이미지와 관절 상태(Joint State)**를 입력으로 받는다고 가정했습니다.1-1. convert_to_onnx.py 파일 작성Pythonimport torch
+import torch.nn as nn
+# ⚠️ 주의: 실제 StudentPolicy 모델 클래스 파일을 임포트해야 합니다.
+# from your_project.student_policy import StudentPolicy
+
+# --- 💡 (임시) StudentPolicy 아키텍처 재정의 ---
+# 로드할 수 있도록 임시로 모델 구조를 정의 (실제 구조에 맞게 수정 필요)
+class StudentPolicy(nn.Module):
+    def __init__(self, action_dim=6):
+        super().__init__()
+        # Depth Input: [1, 1, 128, 128] 가정
+        self.cnn = nn.Sequential(nn.Conv2d(1, 32, 3, 1), nn.ReLU(), nn.Flatten())
+        # Joint Input: [1, 6] 가정
+        self.mlp_joint = nn.Sequential(nn.Linear(6, 32), nn.ReLU())
+        # 최종 출력 (Action)
+        self.output_layer = nn.Linear(32 * 128 * 128 + 32, action_dim) # 임의의 크기
+
+    def forward(self, depth_tensor, joint_tensor):
+        cnn_out = self.cnn(depth_tensor)
+        joint_out = self.mlp_joint(joint_tensor)
+        combined = torch.cat([cnn_out, joint_out], dim=1)
+        action = self.output_layer(combined)
+        return action
+# ---------------------------------------------
+
+
+# 파일 경로 설정
+PT_MODEL_PATH = "model_1499.pt"
+ONNX_MODEL_PATH = "student_policy_optimized.onnx"
+ACTION_DIM = 6 # 로봇 관절 수
+
+# 1. 모델 인스턴스화 및 가중치 로드
+model = StudentPolicy(action_dim=ACTION_DIM).to('cpu')
+# Rsl-rl 모델은 전체 체크포인트 파일에서 'model_state_dict'를 꺼내야 할 수 있습니다.
+checkpoint = torch.load(PT_MODEL_PATH, map_location='cpu')
+# ⚠️ rsl-rl은 보통 model_state_dict 안에 actor.model.state_dict() 가 있습니다.
+model.load_state_dict(checkpoint['model_state_dict']) # 키 이름은 환경에 따라 다를 수 있습니다.
+model.eval()
+
+# 2. 더미 입력 데이터 생성 (중요!)
+# 시뮬레이션에서 사용한 입력 텐서 크기와 타입(dtype)을 정확히 맞춰야 합니다.
+# [Batch Size, Channel, Height, Width]
+dummy_depth = torch.randn(1, 1, 128, 128) 
+# [Batch Size, Joint Dim]
+dummy_joint = torch.randn(1, ACTION_DIM)
+
+# 3. ONNX로 변환 실행
+torch.onnx.export(
+    model, 
+    (dummy_depth, dummy_joint), # 모델의 입력 튜플
+    ONNX_MODEL_PATH,
+    export_params=True, 
+    opset_version=12,         # 호환성을 위해 12 이상 권장
+    do_constant_folding=True,
+    input_names=['depth_input', 'joint_input'], # ONNX 입력 노드 이름 정의
+    output_names=['action_output'],
+    # 동적 배치 크기 지원 (선택 사항)
+    dynamic_axes={'depth_input': {0: 'batch_size'}, 'joint_input': {0: 'batch_size'}, 'action_output': {0: 'batch_size'}}
+)
+
+print(f"ONNX 모델이 {ONNX_MODEL_PATH}에 저장되었습니다.")
+B. Step 2: ONNX를 TensorRT 엔진으로 변환 (NVIDIA 추천)TensorRT는 NVIDIA GPU에서 추론을 위해 특화된 라이브러리입니다. ONNX 모델을 GPU 아키텍처에 맞게 최적화하고 컴파일합니다.2-1. trtexec 툴 사용 (가장 쉬운 방법)TensorRT가 설치된 환경에서, NVIDIA가 제공하는 커맨드라인 툴 trtexec을 사용하면 쉽게 변환 및 벤치마킹이 가능합니다.Bash# ONNX 파일을 TensorRT 엔진으로 변환
+# --fp16: 정확도 손실을 최소화하며 속도를 높이는 16비트 부동 소수점 사용
+# --timingCacheFile: 엔진 로드 시간을 줄이기 위해 캐시 파일 생성
+trtexec --onnx=student_policy_optimized.onnx \
+        --saveEngine=student_policy_tensorrt.engine \
+        --minShapes=depth_input:1x1x128x128,joint_input:1x6 \
+        --optShapes=depth_input:1x1x128x128,joint_input:1x6 \
+        --maxShapes=depth_input:1x1x128x128,joint_input:1x6 \
+        --fp16 \
+        --timingCacheFile=timing.cache
+2. ROS 2 추론 노드 배포 (Deployment) 🚀이제 최적화된 모델을 ROS 2 노드에 통합합니다.A. 최적화된 Python 노드 (ONNX Runtime 사용)Python 환경에서는 onnxruntime 라이브러리를 사용하여 추론하는 것이 가장 빠르고 효율적입니다.student_policy_inference_node.py 수정 사항Python# student_policy_inference_node.py (핵심 로직 업데이트)
+import onnxruntime as ort
+# ... 기타 임포트 유지
+
+class StudentPolicyInferenceNode(Node):
+    def __init__(self):
+        # ... 기존 초기화 코드 유지 ...
+        
+        # --- 모델 로드 (ONNX Runtime) ---
+        ONNX_MODEL_PATH = "student_policy_optimized.onnx" # 파일 경로 지정
+        
+        # 1. ORT Session 생성 (GPU 사용)
+        self.ort_session = ort.InferenceSession(
+            ONNX_MODEL_PATH, 
+            providers=['CUDAExecutionProvider', 'CPUExecutionProvider'] # GPU 우선 사용
+        )
+        
+        # 2. 입력/출력 이름 확인 (ONNX 변환 시 정의한 이름 사용)
+        self.input_names = [input.name for input in self.ort_session.get_inputs()] 
+        self.output_names = [output.name for output in self.ort_session.get_outputs()]
+
+    def control_loop(self):
+        # ... 데이터 준비 로직 유지 ...
+        
+        # 1. 텐서를 NumPy로 변환 (ONNX Runtime은 NumPy 배열을 입력으로 받음)
+        depth_np = self.latest_depth_tensor.cpu().numpy()
+        joint_np = self.latest_joint_tensor.cpu().numpy()
+        
+        # 2. 모델 추론 (Inference)
+        # ⚠️ 입력 순서를 ONNX 변환 시의 순서(depth, joint)와 동일하게 맞춰야 합니다!
+        ort_inputs = {
+            self.input_names[0]: depth_np,   # depth_input
+            self.input_names[1]: joint_np    # joint_input
+        }
+        
+        ort_outputs = self.ort_session.run(self.output_names, ort_inputs)
+        
+        # 3. 결과 처리
+        action_np = ort_outputs[0].squeeze(0) # 첫 번째 출력이 Action
+
+        # ... Action Scaling 및 발행 로직 유지 ...
+B. 최적 성능을 위한 C++ 노드 (TensorRT 엔진 사용)가장 낮은 지연 시간과 높은 처리율을 위해서는 ROS 2 C++ (Rclcpp) 노드에서 TensorRT API를 직접 호출하는 것이 가장 좋습니다.C++ 노드 구조 (개념)헤더 파일: TensorRT, ROS 2(rclcpp), OpenCV(cv_bridge 대신) 관련 헤더를 포함합니다.엔진 로드: .engine 파일을 메모리에 로드하고, **IExecutionContext**를 생성합니다.구독 콜백:**/camera/depth/image_raw**와 **/joint_states**를 구독합니다.cv_bridge 대신 C++의 효율적인 데이터 변환(예: Zero-Copy)을 사용합니다.추론 루프:입력 데이터를 TensorRT에서 요구하는 GPU 버퍼로 복사합니다.context->executeV2(bindings) 함수를 호출하여 추론을 실행합니다. (GPU에서 직접 연산)명령 발행: GPU 결과 버퍼에서 CPU로 데이터를 다시 가져와서 ROS 2 토픽으로 발행합니다.이 방법은 설정 복잡도가 높지만, 5ms 미만의 추론 지연 시간을 달성하는 데 필수적입니다.
