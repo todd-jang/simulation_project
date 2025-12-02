@@ -1,0 +1,167 @@
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from geometry_msgs.msg import PoseStamped
+import json
+import requests # LLM API 호출을 위한 라이브러리 (예: requests)
+import time
+from threading import Thread
+
+# --- LLM API 설정 (Placeholder) ---
+# 실제 환경에서는 API 키와 엔드포인트를 보안/설정 파일에서 로드해야 합니다.
+# Gemini API (generative-language) 또는 OpenAI API 등을 사용할 수 있습니다.
+LLM_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=YOUR_API_KEY"
+# ------------------------------------
+
+class TaskOrchestratorNode(Node):
+    def __init__(self):
+        super().__init__('task_orchestrator_node')
+        self.get_logger().info('작업 중재자 노드 (API 엔트리포인트) 초기화 중...')
+
+        # 파라미터 선언
+        self.declare_parameter('user_command_topic', '/user_command')
+        self.declare_parameter('pose_topic', '/panda_ai/detected_object_pose')
+        self.declare_parameter('task_goal_topic', '/panda_ai/task_goal')
+        self.declare_parameter('task_status_topic', '/panda_ai/task_status')
+
+        # 파라미터 값 가져오기
+        user_command_topic = self.get_parameter('user_command_topic').value
+        pose_topic = self.get_parameter('pose_topic').value
+        self.task_goal_topic = self.get_parameter('task_goal_topic').value
+        task_status_topic = self.get_parameter('task_status_topic').value
+
+        # 현재 씬의 물체 상태를 저장할 변수
+        self.current_scene_objects = {} # { "red_block": PoseStamped, ... }
+
+        # ASR/Frontend로부터의 사용자 명령 구독
+        self.user_command_sub = self.create_subscription(
+            String, user_command_topic, self.user_command_callback, 10)
+        
+        # 자세 추정 노드로부터 물체 위치 구독 (씬 상태 업데이트)
+        self.pose_sub = self.create_subscription(
+            PoseStamped, pose_topic, self.pose_callback, 10)
+        
+        # DQN 노드가 작업을 완료했는지 상태를 구독
+        self.status_sub = self.create_subscription(
+            String, task_status_topic, self.status_callback, 10)
+        
+        # DQN 노드(실행기)에게 하달할 목표 발행
+        self.goal_pub = self.create_publisher(String, self.task_goal_topic, 10)
+        
+        self.current_plan = [] # LLM이 생성한 JSON Plan
+        self.is_executing = False
+
+        self.get_logger().info('작업 중재자 노드 준비 완료. 사용자 명령 대기 중...')
+
+    def pose_callback(self, msg):
+        # (간소화) 물체 ID가 msg.header.frame_id에 있다고 가정.
+        # 실제로는 ObjectDetectionArray 같은 커스텀 메시지 사용 필요.
+        object_id = msg.header.frame_id 
+        if not object_id or object_id == "panda_link0":
+             object_id = "unknown_object" # 예외 처리
+        
+        self.current_scene_objects[object_id] = msg
+        self.get_logger().debug(f'씬 업데이트: {object_id}')
+
+    def user_command_callback(self, msg):
+        user_text = msg.data
+        self.get_logger().info(f'사용자 명령 수신: "{user_text}"')
+        
+        if self.is_executing:
+            self.get_logger().warn('이전 작업이 아직 실행 중입니다. 새 명령을 무시합니다.')
+            return
+
+        # 별도 스레드에서 LLM 호출 (ROS 콜백 차단 방지)
+        thread = Thread(target=self.call_llm_api, args=(user_text,))
+        thread.start()
+
+    def call_llm_api(self, user_text):
+        self.is_executing = True
+        self.get_logger().info('LLM API 호출 시작...')
+
+        # 1. 현재 씬 상태를 LLM이 이해할 수 있는 텍스트로 변환
+        scene_context = "Current scene objects:\n"
+        if not self.current_scene_objects:
+            scene_context += "No objects detected."
+        for obj_id, pose in self.current_scene_objects.items():
+            pos = pose.pose.position
+            scene_context += f"- {obj_id} at (x={pos.x:.2f}, y={pos.y:.2f}, z={pos.z:.2f})\n"
+
+        # 2. LLM 프롬프트 생성
+        prompt = f"""
+        You are a Franka Panda robot's task planner.
+        Your goal is to convert a user's natural language command into a JSON list of actions.
+        Available actions are: "pick", "place", "goto".
+        
+        {scene_context}
+        
+        User Command: "{user_text}"
+        
+        Based on the scene and command, generate the JSON action plan.
+        Example: [{"action": "pick", "target": "red_block"}, {"action": "place", "target": "blue_bin"}]
+        
+        JSON Plan:
+        """
+
+        # 3. LLM API 호출 (Placeholder)
+        # (실제 구현 시: try-except, 인증, requests/aiohttp 사용)
+        self.get_logger().info(f'LLM 프롬프트 전송:\n{prompt}')
+        
+        # --- (시뮬레이션된 LLM 응답) ---
+        # 실제로는 'requests.post(LLM_API_ENDPOINT, ...)'
+        time.sleep(2) # API 호출 시간 시뮬레이션
+        if "빨간색" in user_text:
+            sim_response_json = '[{"action": "pick", "target": "red_block"}, {"action": "place", "target": "blue_bin"}]'
+        else:
+            sim_response_json = '[{"action": "goto", "target": "center_table"}]'
+        self.get_logger().info(f'LLM 응답 수신: {sim_response_json}')
+        # --------------------------------
+        
+        try:
+            self.current_plan = json.loads(sim_response_json)
+            if not self.current_plan:
+                self.get_logger().error('LLM이 유효한 계획을 생성하지 못했습니다.')
+                self.is_executing = False
+                return
+            
+            # 첫 번째 작업 실행
+            self.execute_next_step()
+
+        except json.JSONDecodeError:
+            self.get_logger().error('LLM 응답 (JSON) 파싱 실패')
+            self.is_executing = False
+
+    def execute_next_step(self):
+        if not self.current_plan:
+            self.get_logger().info('모든 계획이 완료되었습니다.')
+            self.is_executing = False
+            return
+        
+        # 큐(Queue)에서 다음 작업 가져오기
+        step = self.current_plan.pop(0)
+        goal_msg = String()
+        goal_msg.data = json.dumps(step) # 예: '{"action": "pick", "target": "red_block"}'
+        
+        self.get_logger().info(f'다음 목표 발행 -> DQN: {goal_msg.data}')
+        self.goal_pub.publish(goal_msg)
+
+    def status_callback(self, msg):
+        if msg.data == "goal_completed" and self.is_executing:
+            self.get_logger().info('DQN으로부터 작업 완료 보고 수신.')
+            # 이전 작업이 완료되었으므로 다음 작업 실행
+            self.execute_next_step()
+        elif msg.data == "goal_failed" and self.is_executing:
+            self.get_logger().error('DQN으로부터 작업 실패 보고 수신. 계획을 중단합니다.')
+            self.current_plan = []
+            self.is_executing = False
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    orchestrator_node = TaskOrchestratorNode()
+    rclpy.spin(orchestrator_node)
+    orchestrator_node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
